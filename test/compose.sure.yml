@@ -1,0 +1,43 @@
+# Sure для интеграционных тестов (CI). Минимальный набор: web + db + redis.
+# Образ we-promise/sure сам прогоняет db:prepare на старте.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sure_user
+      POSTGRES_PASSWORD: sure_password
+      POSTGRES_DB: sure_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sure_user -d sure_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    image: ghcr.io/we-promise/sure:stable
+    ports:
+      - "3000:3000"
+    environment:
+      SECRET_KEY_BASE: ci_secret_key_base_ci_secret_key_base_ci_secret_key_base_ci_secret_key_base
+      SELF_HOSTED: "true"
+      RAILS_FORCE_SSL: "false"
+      RAILS_ASSUME_SSL: "false"
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: sure_user
+      POSTGRES_PASSWORD: sure_password
+      POSTGRES_DB: sure_test
+      REDIS_URL: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
