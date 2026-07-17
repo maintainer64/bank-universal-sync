@@ -1,7 +1,7 @@
 {
   "name": "bank-universal-sync",
   "repository": "maintainer64/bank-universal-sync",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Chrome Extension for universal bank data export ",
   "main": "src/index.tsx",
   "scripts": {

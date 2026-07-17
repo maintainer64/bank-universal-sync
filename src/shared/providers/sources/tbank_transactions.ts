@@ -70,7 +70,7 @@ async function getParamsOperation(params: Params) {
     // Последний день месяца (23:59:59.999)
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     const searchParams = new URLSearchParams({
-        appName: 'supreme',
+        appName: 'web',
         appVersion: '0.0.1',
         origin: 'web,ib5,platform',
         sessionid: sessionId,
@@ -94,7 +94,7 @@ async function getAccounts() {
         redirect: "follow"
     } as RequestInit;
     const searchParams = new URLSearchParams({
-        appName: 'supreme',
+        appName: 'web',
         appVersion: '0.0.1',
         origin: 'web,ib5,platform',
         sessionid: sessionId,
