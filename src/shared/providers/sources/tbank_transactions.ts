@@ -7,7 +7,8 @@ import {
 } from "../base";
 import {getCookieByName, getMaxTransactions} from "@/shared/utils";
 import {swFetch} from "@/shared/sw-fetch";
-import {getAccountName, getCurrencyCodeMap, getFullNotice} from "@/shared/providers/utils";
+import {getAccountName, getCurrencyCodeMap, getFullNotice, logItems} from "@/shared/providers/utils";
+import {logSync} from "@/shared/sync-log";
 
 const SETTINGS = {
     prefix: "tbank_",
@@ -15,6 +16,7 @@ const SETTINGS = {
     icon: "tbank.png",
     url: "https://www.tbank.ru/mybank/operations",
     baseUrl: "https://www.tbank.ru/api/common/v1",
+    baseUrlLogo: "tbank.ru",
 };
 
 
@@ -46,6 +48,14 @@ const ACCOUNT_TYPES = new Map<string, AccountTypeWithSubtype>([
     }],
 ])
 
+// Запасной тип для счетов, которых нет в ACCOUNT_TYPES (вклады, брокерские и т.п.):
+// лучше завести счёт, чем уронить синк на его операциях.
+const DEFAULT_ACCOUNT_TYPE: AccountTypeWithSubtype = {
+    accountable_type: 'Depository',
+    subtype: 'checking',
+    isMine: true,
+};
+
 interface Params {
     rangeStart?: string;
     rangeEnd?: string;
@@ -55,7 +65,7 @@ interface Params {
 
 // Получение данных об операциях
 async function getParamsOperation(params: Params) {
-    const sessionId = await getCookieByName('psid');
+    const sessionId = await getCookieByName('psid', SETTINGS.url);
     const requestOptions = {
         method: "GET",
         credentials: 'include',
@@ -87,7 +97,9 @@ async function getParamsOperation(params: Params) {
 
 // Получение данных об открытых счетах
 async function getAccounts() {
-    const sessionId = await getCookieByName('psid');
+    // URL передаём явно: в окне синка активная вкладка — страница расширения,
+    // и куки банка по ней не найдутся (тогда sessionid уходит пустым).
+    const sessionId = await getCookieByName('psid', SETTINGS.url);
     const requestOptions = {
         method: "GET",
         credentials: 'include',
@@ -115,6 +127,9 @@ export const tBankTransactions: ProviderAny = {
     },
     getUrl: () => {
         return SETTINGS.url
+    },
+    baseUrlLogo: () => {
+        return SETTINGS.baseUrlLogo
     },
 
     getTransactions: async (params: ProviderParams): Promise<[Transaction[], any?]> => {
@@ -159,16 +174,40 @@ export const tBankTransactions: ProviderAny = {
     getAccounts: async (params: ProviderParams): Promise<[Account[], any?]> => {
         const resp = await getAccounts();
         const rows: Account[] = [];
+
+        const payload = resp?.payload;
+        logItems(SETTINGS.name, "счетов в ответе", payload, resp);
+        if (Array.isArray(payload) && payload.length > 0) {
+            const types = payload.reduce((acc: Record<string, number>, a: any) => {
+                const key = a?.accountType ?? "без типа";
+                acc[key] = (acc[key] ?? 0) + 1;
+                return acc;
+            }, {});
+            logSync(
+                `${SETTINGS.name}: типы счетов — ` +
+                Object.entries(types).map(([type, n]) => `${type}×${n}`).join(", "),
+            );
+        }
+
         resp?.payload?.map((account: any) => {
-            if (!account?.id) return;
-            const accountSure = ACCOUNT_TYPES.get(account.accountType);
-            if (!accountSure) return;
+            if (!account?.id) {
+                logSync(`Т-Банк: счёт без id пропущен (тип "${account?.accountType}")`, "warn");
+                return;
+            }
+            if (!ACCOUNT_TYPES.has(account.accountType)) {
+                logSync(
+                    `Т-Банк: неизвестный тип счёта "${account.accountType}" (${account.id}) — пропускаем`,
+                    "warn",
+                );
+                return;
+            }
+            const accountSure = ACCOUNT_TYPES.get(account.accountType) ?? DEFAULT_ACCOUNT_TYPE;
             rows.push({
                 name: getAccountName(account?.name || 'Счёт', params.userName, tBankTransactions.getName()),
                 currency: account?.currency?.name || '',
                 opening_balance_date: (new Date(account?.creationDate?.milliseconds)).toISOString().split('T')[0],
-                institution_name: SETTINGS.name,
-                institution_domain: `${SETTINGS.prefix}${account?.id}`,
+                institution_domain: SETTINGS.baseUrlLogo,
+                institution_name: `${SETTINGS.prefix}${account?.id}`,
                 subtype: accountSure.subtype,
                 expiration_date: account?.dueDate?.milliseconds ? (new Date(account?.dueDate?.milliseconds)).toISOString().split('T')[0] : undefined,
                 available_credit: account?.creditLimit?.value,

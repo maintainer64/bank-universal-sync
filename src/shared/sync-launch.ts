@@ -8,6 +8,8 @@ export interface SyncRequest {
     url: string;            // адрес вкладки банка
     maxTransactions: string;
     userName?: string;
+    // Значения настроек, нужных провайдеру (см. ProviderAny.getConfigKeys)
+    config?: Record<string, string>;
 }
 
 const SYNC_REQUEST_KEY = 'pending-sync-request';

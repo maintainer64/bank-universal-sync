@@ -1,16 +1,19 @@
 import {Product, ProviderAny, ProviderParams} from "../base";
 import {getCookieByName, getMaxTransactions} from "@/shared/utils";
 import {swFetch} from "@/shared/sw-fetch";
+import {logItems} from "@/shared/providers/utils";
 
 
 const PREFIX = "life_mart_";
+// Домен для поиска куки: в окне синка активная вкладка — страница расширения.
+const SITE_URL = "https://lifemart.ru";
 
 
 async function getOrdersByParams(limit: number, offset: number) {
     const requestOptions: any = {
         method: "GET",
         headers: {
-            "Authorization": await getCookieByName('auth'),
+            "Authorization": await getCookieByName('auth', SITE_URL),
         },
         redirect: "follow"
     };
@@ -39,11 +42,16 @@ export const lifeMartProducts: ProviderAny = {
     getName: () => {
         return "Жизнь март"
     },
+    getKind: () => 'shop' as const,
+
     getIcon: () => {
         return "lifemart.png"
     },
     getUrl: () => {
         return "https://lifemart.ru"
+    },
+    baseUrlLogo: () => {
+        return "lifemart.ru"
     },
     getProducts: async (params: ProviderParams): Promise<Product[]> => {
         const rows: Product[] = [];
@@ -74,6 +82,7 @@ export const lifeMartProducts: ProviderAny = {
                 })
             }
         }
+        logItems("Жизньмарт", "заказов разобрано", rows);
         return rows;
     },
 }

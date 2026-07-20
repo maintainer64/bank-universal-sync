@@ -3,15 +3,15 @@ import {Account, ProviderFormatCSV, Transaction} from "@/shared/providers/base";
 export class DefaultCsvService implements ProviderFormatCSV {
     async accountsToCSV(accounts: Account[]): Promise<any[]> {
         return accounts.map(a => ({
-            'ID счёта': a.institution_domain,
+            'ID счёта': a.institution_name,
             'Название': a.name,
             'Валюта': a.currency,
             'Дата открытия': a.opening_balance_date,
-            'Банк': a.institution_name,
+            'Банк': a.institution_domain,
             'Тип': a.accountable_type || '',
             'Подтип': a.subtype,
             'Заметки': a.notes || '',
-            'Название банка': a.institution_name,
+            'Название банка': a.institution_domain,
         }));
     }
 

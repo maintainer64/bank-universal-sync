@@ -1,14 +1,14 @@
 import {Collapsible} from "@/components/ui/collapsible";
 import {Label} from "@/components/ui/label";
 import {Input} from "@/components/ui/input";
-import {useUniversalStorage} from "@/shared/hooks/useUniversalStorage";
+import {useSetting} from "@/shared/settings";
 import {AsyncButton} from "@/components/ui/button";
 import {FaSolidRocket} from "solid-icons/fa";
 import {navigateTo} from "@/shared/routing";
 
 export const GeneralSettings = () => {
-    const [max, setMax] = useUniversalStorage('general-max-transactions', '1000');
-    const [userName, setUserName] = useUniversalStorage('user-name', '');
+    const [max, setMax] = useSetting('general-max-transactions');
+    const [userName, setUserName] = useSetting('user-name');
 
     return (
         <Collapsible title="Общие настройки" defaultOpen={true}>

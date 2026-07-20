@@ -21,11 +21,16 @@ services:
       timeout: 5s
       retries: 10
 
-  web:
+  # Воркер нужен, чтобы Sure пересчитывал holdings из сделок (SyncJob).
+  worker:
     image: ghcr.io/we-promise/sure:stable
-    ports:
-      - "3000:3000"
+    command: bundle exec sidekiq
+    volumes:
+      - ./disable-csrf.rb:/rails/config/initializers/zzz_disable_csrf.rb:ro
     environment:
+      # Провайдер котировок: без него Security::Resolver не находит бумагу
+      # и создаёт offline-заглушку, по которой цены никогда не обновляются.
+      SECURITIES_PROVIDERS: moex_public
       SECRET_KEY_BASE: ci_secret_key_base_ci_secret_key_base_ci_secret_key_base_ci_secret_key_base
       SELF_HOSTED: "true"
       RAILS_FORCE_SSL: "false"
@@ -36,8 +41,31 @@ services:
       POSTGRES_PASSWORD: sure_password
       POSTGRES_DB: sure_test
       REDIS_URL: redis://redis:6379/1
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+
+  web:
+    image: ghcr.io/we-promise/sure:stable
+    # Тестовый стенд: отключаем CSRF/Origin, чтобы дёргать web-формы Sure
+    # (создание счетов) без authenticity_token и подмены Origin.
+    volumes:
+      - ./disable-csrf.rb:/rails/config/initializers/zzz_disable_csrf.rb:ro
+    environment:
+      DISABLE_CSRF: "true"
+      # Провайдер котировок: без него Security::Resolver не находит бумагу
+      # и создаёт offline-заглушку, по которой цены никогда не обновляются.
+      SECURITIES_PROVIDERS: moex_public,tinkoff_invest,binance_public
+      SECRET_KEY_BASE: ci_secret_key_base_ci_secret_key_base_ci_secret_key_base_ci_secret_key_base
+      SELF_HOSTED: "true"
+      RAILS_FORCE_SSL: "false"
+      RAILS_ASSUME_SSL: "false"
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_USER: sure_user
+      POSTGRES_PASSWORD: sure_password
+      POSTGRES_DB: sure_test
+      REDIS_URL: redis://redis:6379/1
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:roΩ

@@ -53,8 +53,8 @@ export class SureInternalApi {
         if (inputInPostForm && inputInPostForm.value) {
             return inputInPostForm.value;
         }
-
-        throw new Error('Не удалось найти Authenticity или CSRF токен через DOM');
+        console.warn('Не удалось найти Authenticity или CSRF токен через DOM');
+        return '';
     }
 
 
@@ -98,5 +98,70 @@ export class SureInternalApi {
             authenticity_token: token,
             ...paramsFlatted
         });
+    }
+
+    async getTickerByName(ticker: string, dataProviders: string[] = []): Promise<string[]> {
+        const token = await this.fetchAuthenticityToken(`/trades/new`, "");
+        const url = new URL(`${this.baseUrl}/securities`);
+        url.searchParams.append('for_id', 'model_ticker');
+        url.searchParams.append('format', 'turbo');
+        url.searchParams.append('q', ticker);
+        const response = await this.fetchFn(url.toString(), {
+            method: 'GET',
+            headers: {'X-Csrf-Token': this.lastCSRF || token},
+            credentials: this.credentials,
+            redirect: 'follow',
+        });
+
+        if (!response.ok) return [];
+        const turboHtml = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(turboHtml, 'text/html');
+        const streams = doc.querySelectorAll('turbo-stream');
+
+        interface Entry {
+            full: string;
+            short: string;
+        }
+
+        const all: Entry[] = [];
+        for (const stream of streams) {
+            const template = stream.querySelector('template');
+            if (!template) continue;
+            const templateContent = template.innerHTML;
+            if (!templateContent.trim()) continue;
+            const templateDoc = parser.parseFromString(templateContent, 'text/html');
+            const elements = templateDoc.querySelectorAll('[data-value]');
+
+            for (const el of elements) {
+                const raw = el.getAttribute('data-value');
+                if (!raw) continue;
+                const full = raw.trim();
+                if (full === '') continue;
+                const parts = full.split('|');
+                all.push({
+                    full,
+                    short: parts[0],
+                });
+            }
+        }
+
+        const result: string[] = [];
+        const seen = new Set<string>();
+
+        const providers = dataProviders.length > 0 ? dataProviders : [''];
+
+        for (const isStrict of [true, false]) {
+            for (const provider of providers) {
+                for (const value of all) {
+                    if (isStrict && !value.full.includes(ticker)) continue;
+                    if (provider && !value.full.includes(provider)) continue;
+                    if (seen.has(value.full)) continue;
+                    seen.add(value.full);
+                    result.push(value.full, value.short);
+                }
+            }
+        }
+        return result;
     }
 }

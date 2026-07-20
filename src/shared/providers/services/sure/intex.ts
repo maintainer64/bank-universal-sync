@@ -1,8 +1,16 @@
 import {SureInternalApi} from "@/shared/providers/services/sure/sureInternalClient/base";
 import {Api as SureExternalApi} from "@/shared/providers/services/sure/sureClient/Api";
-import {AccountCollection, AccountDetail} from "./sureClient/data-contracts";
-import {Account, OnProgress, ProviderFormatCSV, ProviderSync, Transaction} from "@/shared/providers/base";
+import {
+    AccountCollection,
+    AccountDetail,
+    SecurityCollection,
+    Trade as SureTrade,
+    Transaction as SureTransaction
+} from "./sureClient/data-contracts";
+import {Account, OnProgress, ProviderFormatCSV, ProviderSync, Trade, Transaction} from "@/shared/providers/base";
 import {mapAccountToParams} from "@/shared/providers/services/sure/map";
+import {logSync} from "@/shared/sync-log";
+import {searchTrade, searchTransaction} from "@/shared/providers/services/sure/searchTrade";
 
 const MAX_PAGES = 1000;
 
@@ -17,7 +25,7 @@ export class SureService implements ProviderSync, ProviderFormatCSV {
         this.externalApi = new SureExternalApi({
             baseUrl,
             baseApiParams: {
-                credentials: 'include',
+                credentials: 'same-origin',
                 headers: {
                     "X-Api-Key": apiKey,
                 },
@@ -117,8 +125,8 @@ export class SureService implements ProviderSync, ProviderFormatCSV {
 
     private getAccountsInDbById(db: AccountDetail[], id?: string): AccountDetail | undefined {
         return db.find((account) => {
-            // Защита на случай, если domain окажется undefined или null
-            if (!account.institution_domain || !id) {
+            // Защита на случай, если name окажется undefined или null
+            if (!account.institution_name || !id) {
                 return false;
             }
             if (account.status === "pending_deletion") {
@@ -126,7 +134,7 @@ export class SureService implements ProviderSync, ProviderFormatCSV {
             }
 
             // Проверяем, начинается ли домен из БД с домена из account
-            return account.institution_domain.startsWith(id);
+            return account.institution_name.startsWith(id);
         });
     }
 
@@ -138,7 +146,7 @@ export class SureService implements ProviderSync, ProviderFormatCSV {
         for (const account of accounts) {
             const accountInDb = this.getAccountsInDbById(
                 accountsInDb,
-                account.institution_domain
+                account.institution_name
             )
             current++;
             onProgress?.({stage: "Создание счетов в Sure", current, total});
@@ -148,8 +156,156 @@ export class SureService implements ProviderSync, ProviderFormatCSV {
             }
             const response = await this.internalApi.createDepository(mapAccountToParams(account))
             if (!response.ok) {
-                throw Error(`Не удалось синхронизировать счёт ${account.name} ${account.institution_domain}`)
+                throw Error(`Не удалось синхронизировать счёт ${account.name} ${account.institution_name}`)
             }
         }
+    }
+
+    private async getExistingTrades({accountId, date}: { accountId: string, date: string }): Promise<SureTrade[]> {
+        const result: SureTrade[] = [];
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const response = await this.externalApi.v1TradesList({
+                account_id: accountId,
+                page,
+                per_page: 100,
+                start_date: date,
+                end_date: date,
+            });
+            const json = await response.json();
+            const trades = json?.trades ?? [];
+            result.push(...trades);
+            if (trades.length === 0 || !json.pagination || page >= json.pagination.total_pages) break;
+        }
+        return result;
+    }
+
+    private async getExistingTransaction({accountId, date}: {
+        accountId: string,
+        date: string
+    }): Promise<SureTransaction[]> {
+        const result: SureTransaction[] = [];
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const response = await this.externalApi.v1TransactionsList({
+                account_ids: [accountId],
+                page,
+                per_page: 100,
+                start_date: date,
+                end_date: date,
+            });
+            const json = await response.json();
+            const transactions = json?.transactions ?? [];
+            result.push(...transactions);
+            if (transactions.length === 0 || !json.pagination || page >= json.pagination.total_pages) break;
+        }
+        return result;
+    }
+
+    private async getExistingTicker(trade: Trade): Promise<{
+        security_id?: string,
+        ticker?: string,
+        manual_ticker?: string
+    }> {
+        if (!trade.ticker) return {};
+        const securityCollectionResponse = await this.externalApi.v1SecuritiesList({
+            page: 1,
+            per_page: 1,
+            ticker: trade.ticker,
+        })
+        const securityCollection: SecurityCollection = await securityCollectionResponse.json();
+        for (const securityItem of securityCollection.securities) {
+            if (securityItem.id) {
+                return {security_id: securityItem.id}
+            }
+        }
+        const tickerListExternal = await this.internalApi.getTickerByName(trade.ticker, trade.dataProviders);
+        for (const tickerExternal of tickerListExternal) {
+            const securityCollectionResponse = await this.externalApi.v1SecuritiesList({
+                page: 1,
+                per_page: 1,
+                ticker: tickerExternal,
+            })
+            const securityCollection: SecurityCollection = await securityCollectionResponse.json();
+            for (const securityItem of securityCollection.securities) {
+                if (securityItem.id) {
+                    return {security_id: securityItem.id}
+                }
+            }
+        }
+        for (const tickerExternal of tickerListExternal) {
+            if (tickerExternal){
+                return {ticker: tickerExternal}
+            }
+        }
+        logSync(`Не найден ID ценной бумаги ${trade.ticker}`, "info")
+        return {manual_ticker: trade.ticker};
+    }
+
+    async createTradesIfNotExists(trades: Trade[], onProgress?: OnProgress): Promise<void> {
+        if (trades.length === 0) return;
+        onProgress?.({stage: "Проверка сделок в Sure…"});
+        const accountsInDb = await this.getFullAccountsInDb();
+
+        // Счета Sure, затронутые этими сделками
+        const accountIdByDomain = new Map<string, string>();
+        for (const trade of trades) {
+            if (accountIdByDomain.has(trade.external_account_id)) continue;
+            const accountInDb = this.getAccountsInDbById(accountsInDb, trade.external_account_id);
+            if (!accountInDb) throw Error(`Невозможно найти счёт ${trade.external_account_id}`);
+            accountIdByDomain.set(trade.external_account_id, accountInDb.id);
+        }
+
+        // Тикеты ценные бумаги
+        onProgress?.({stage: "Получение цен на все ценные бумаги..."});
+
+        const total = trades.length;
+        let current = 0;
+        let created = 0;
+        const skippedNoTicker: string[] = [];
+        for (const trade of trades) {
+            const accountId = accountIdByDomain.get(trade.external_account_id)!;
+            current++;
+            onProgress?.({stage: "Отправка сделок в Sure", current, total});
+            const [existTrades, existTransactions] = await Promise.all([
+                this.getExistingTrades({accountId: accountId, date: trade.date}),
+                this.getExistingTransaction({accountId: accountId, date: trade.date}),
+            ]);
+            if (searchTrade(existTrades, trade, accountId)) continue;
+            if (searchTransaction(existTransactions, trade, accountId)) continue;
+            // Для buy/sell Sure обязательно требует бумагу (security_id/ticker/
+            // manual_ticker). Без тикера запрос гарантированно упадёт с
+            // «Security identifier required» — пропускаем и говорим об этом явно.
+            if ((trade.type === "buy" || trade.type === "sell") && !trade.ticker) {
+                skippedNoTicker.push(`${trade.date} ${trade.type} ${trade.name || trade.external_id}`);
+                continue;
+            }
+            const tickerPayload = await this.getExistingTicker(trade);
+            const base = {
+                account_id: accountId,
+                date: trade.date,
+                type: trade.type,
+                currency: trade.currency,
+                ...(trade.qty !== undefined ? {qty: trade.qty} : {}),
+                ...(trade.price !== undefined ? {price: trade.price} : {}),
+                ...(trade.amount !== undefined ? {amount: trade.amount} : {}),
+                ...(tickerPayload ?? {}),
+            };
+            try {
+                await this.externalApi.v1TradesCreate({
+                    trade: {...base},
+                });
+                created++
+            } catch (e) {
+                logSync(`Не удалось подключить бумагу ${trade.ticker}: ${e}`);
+                break
+            }
+        }
+        if (skippedNoTicker.length > 0) {
+            logSync(
+                `Пропущено сделок без бумаги: ${skippedNoTicker.length} ` +
+                `(Sure требует ticker для buy/sell). Например: ${skippedNoTicker.slice(0, 3).join("; ")}`,
+                "warn",
+            );
+        }
+        logSync(`Создано: ${created} операций с бумагами`)
     }
 }

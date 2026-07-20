@@ -1,3 +1,5 @@
+import {logSync} from "@/shared/sync-log";
+
 export const getFullNotice = (...args: any): string => {
     const filteredArray = args.filter((item: string | any[]) => typeof item === 'string' && item.length > 0);
     const uniqueArray = [...new Set(filteredArray)];
@@ -14,3 +16,19 @@ export const getCurrencyCodeMap = (currency?: string): string => {
     if (currency === "RUR") return "RUB"
     return currency || "RUB";
 };
+
+/**
+ * Диагностика ответа источника для лога синхронизации.
+ *
+ * Когда список пуст, печатает код ошибки и поля ответа — иначе по «получено 0»
+ * невозможно понять, что чинить: сессию, эндпоинт или разбор ответа.
+ */
+export function logItems(source: string, what: string, items: unknown, raw?: any): void {
+    if (!Array.isArray(items) || items.length === 0) {
+        const code = raw?.resultCode ?? raw?.status ?? raw?.error ?? "нет";
+        const keys = Object.keys(raw ?? {}).join(", ") || "нет";
+        logSync(`${source}: ${what} — пусто. Код: ${code}, поля ответа: [${keys}]`, "warn");
+        return;
+    }
+    logSync(`${source}: ${what} — ${items.length}`);
+}

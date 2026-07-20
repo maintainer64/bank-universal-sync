@@ -4,7 +4,7 @@ import {FaSolidDownload, FaSolidRotate, FaSolidFileWord} from "solid-icons/fa";
 import {convertJsonToCSVString, downloadFile} from "@/shared/utils";
 import {useActiveTabUrl} from "@/shared/hooks/useActiveTabUrl";
 import {AsyncButton} from "@/components/ui/button";
-import {useUniversalStorage} from "@/shared/hooks/useUniversalStorage";
+import {useSetting, useSettingsSnapshot} from "@/shared/settings";
 import {useServices} from "@/shared/hooks/useServices";
 import {launchSyncWindow} from "@/shared/sync-launch";
 
@@ -16,10 +16,19 @@ export const ServiceDetailsPage: Component<ServiceDetailsPageProps> = (props) =>
     const p = props.provider;
     const tab = useActiveTabUrl();
     const services = useServices();
-    const [maxTransactions] = useUniversalStorage('general-max-transactions', '1000');
-    const [userName] = useUniversalStorage('user-name', '');
-    const [fetchJsonProviderData] = useUniversalStorage('fetch-json-provider-data', false);
+    const [maxTransactions] = useSetting('general-max-transactions');
+    const [userName] = useSetting('user-name');
+    const [fetchJsonProviderData] = useSetting('fetch-json-provider-data');
+    const settingsSnapshot = useSettingsSnapshot();
 
+    // Единая сборка параметров: провайдер объявляет нужные ему настройки
+    // через getConfigKeys(), страница отдаёт их значения в config.
+    const buildParams = (): ProviderParams => ({
+        url: tab.url() ?? "",
+        maxTransactions: maxTransactions(),
+        userName: userName(),
+        config: settingsSnapshot(p.getConfigKeys?.()),
+    });
     return (
         <div class="flex flex-col gap-2 p-4">
             <h3 class="font-semibold text-lg mb-2 flex items-center gap-3 px-2">
@@ -34,27 +43,30 @@ export const ServiceDetailsPage: Component<ServiceDetailsPageProps> = (props) =>
                 <span>{p.getName()}</span>
             </h3>
 
-            <Show when={p.getTransactions && p.getAccounts && fetchJsonProviderData()}>
+            <Show when={(p.getTransactions || p.getAccounts || p.getTrades) && fetchJsonProviderData()}>
                 <AsyncButton
                     icon={<FaSolidFileWord/>}
                     label="Выгрузить в JSON"
                     loadingLabel="Экспорт..."
                     onClick={async () => {
-                        const params: ProviderParams = {
-                            url: tab.url() ?? "",
-                            maxTransactions: maxTransactions(),
-                            userName: userName(),
-                        };
-                        const [, accounts] = await props.provider.getAccounts?.(params) || [[], undefined];
-                        const [, transactions] = await props.provider.getTransactions?.(params) || [[], undefined];
-                        downloadFile("debug.json", JSON.stringify({accounts, transactions}, null, 2));
+                        const params: ProviderParams = buildParams();
+                        const [, accounts] = await props.provider?.getAccounts?.(params) || [[], undefined];
+                        const [, transactions] = await props.provider?.getTransactions?.(params) || [[], undefined];
+                        const [, trades] = await props.provider?.getTrades?.(params) || [[], undefined];
+                        downloadFile(
+                            "debug.json",
+                            JSON.stringify({accounts, transactions, trades},
+                                null,
+                                2
+                            )
+                        );
                     }}
                     successMessage={`Счета и операции успешно выгружены в JSON`}
                     errorMessage={`Ошибка при выгрузке в JSON`}
                 />
             </Show>
 
-            <Show when={p.getTransactions && p.getAccounts}>
+            <Show when={p.getAccounts || p.getTransactions || p.getTrades}>
                 <For each={services().services}>
                     {(service) => (
                         <AsyncButton
@@ -70,6 +82,7 @@ export const ServiceDetailsPage: Component<ServiceDetailsPageProps> = (props) =>
                                     url: tab.url() ?? "",
                                     maxTransactions: maxTransactions(),
                                     userName: userName(),
+                                    config: settingsSnapshot(p.getConfigKeys?.()),
                                 });
                             }}
                             successMessage={`Открыто окно синхронизации с ${service.getName()}`}
@@ -85,11 +98,7 @@ export const ServiceDetailsPage: Component<ServiceDetailsPageProps> = (props) =>
                     label="Операции в CSV"
                     loadingLabel="Экспорт..."
                     onClick={async () => {
-                        const params: ProviderParams = {
-                            url: tab.url() ?? "",
-                            maxTransactions: maxTransactions(),
-                            userName: userName(),
-                        };
+                        const params: ProviderParams = buildParams();
                         const [transactions] = await p.getTransactions?.(params) || [[], undefined];
                         const rows = await services().csv.transactionsToCSV(transactions);
                         const csv = convertJsonToCSVString(rows);
@@ -106,11 +115,7 @@ export const ServiceDetailsPage: Component<ServiceDetailsPageProps> = (props) =>
                     label="Счета в CSV"
                     loadingLabel="Экспорт..."
                     onClick={async () => {
-                        const params: ProviderParams = {
-                            url: tab.url() ?? "",
-                            maxTransactions: maxTransactions(),
-                            userName: userName(),
-                        };
+                        const params: ProviderParams = buildParams();
                         const [accounts] = await p.getAccounts?.(params) || [[], undefined];
                         const rows = await services().csv.accountsToCSV(accounts);
                         const csv = convertJsonToCSVString(rows);
@@ -127,11 +132,7 @@ export const ServiceDetailsPage: Component<ServiceDetailsPageProps> = (props) =>
                     label="Заказы в CSV"
                     loadingLabel="Экспорт..."
                     onClick={async () => {
-                        const params: ProviderParams = {
-                            url: tab.url() ?? "",
-                            maxTransactions: maxTransactions(),
-                            userName: userName(),
-                        };
+                        const params: ProviderParams = buildParams();
                         const products = await p.getProducts?.(params) || [];
                         const csv = convertJsonToCSVString(products);
                         downloadFile("data.csv", csv);

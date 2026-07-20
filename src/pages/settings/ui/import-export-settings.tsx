@@ -1,17 +1,16 @@
 import {Collapsible} from "@/components/ui/collapsible";
-import {useUniversalStorage} from "@/shared/hooks/useUniversalStorage";
 import {FaSolidDownload, FaSolidFileImport} from "solid-icons/fa";
 import {downloadFile} from "@/shared/utils";
 import {AsyncButton} from "@/components/ui/button";
+import {EXPORTABLE_KEYS, SettingKey, useSetting} from "@/shared/settings";
 
 export const ImportExportSettings = () => {
-    const [sureUrl, setSureUrl] = useUniversalStorage('sure-url', '');
-    const [sureToken, setSureToken] = useUniversalStorage('sure-token', '');
-    const [fireflyUrl, setFireflyUrl] = useUniversalStorage('firefly-url', '');
-    const [fireflyToken, setFireflyToken] = useUniversalStorage('firefly-token', '');
-    const [exportType, setExportType] = useUniversalStorage('export-type', 'csv');
-    const [max, setMax] = useUniversalStorage('general-max-transactions', '1000');
-    const [userName, setUserName] = useUniversalStorage('user-name', '');
+    // Список ключей статичен (из схемы SETTINGS), поэтому хуки в цикле безопасны.
+    // Новая настройка в схеме автоматически попадает в импорт/экспорт.
+    const stores = Object.fromEntries(
+        EXPORTABLE_KEYS.map((key) => [key, useSetting(key)]),
+    ) as Record<SettingKey, ReturnType<typeof useSetting>>;
+
     const importSettings = (event: Event) => {
         const input = event.target as HTMLInputElement;
         const file = input.files?.[0];
@@ -22,27 +21,10 @@ export const ImportExportSettings = () => {
         reader.onload = (e) => {
             try {
                 const settings = JSON.parse(e.target?.result as string);
-
-                if (settings['sure-url'] !== undefined) {
-                    setSureUrl(settings['sure-url']);
-                }
-                if (settings['sure-token'] !== undefined) {
-                    setSureToken(settings['sure-token']);
-                }
-                if (settings['firefly-url'] !== undefined) {
-                    setFireflyUrl(settings['firefly-url']);
-                }
-                if (settings['firefly-token'] !== undefined) {
-                    setFireflyToken(settings['firefly-token']);
-                }
-                if (settings['export-type'] !== undefined) {
-                    setExportType(settings['export-type']);
-                }
-                if (settings['general-max-transactions'] !== undefined) {
-                    setMax(settings['general-max-transactions']);
-                }
-                if (settings['user-name'] !== undefined) {
-                    setUserName(settings['user-name']);
+                for (const key of EXPORTABLE_KEYS) {
+                    if (settings[key] !== undefined) {
+                        stores[key][1](settings[key]);
+                    }
                 }
             } catch (error) {
                 console.error('Import error:', error);
@@ -53,6 +35,7 @@ export const ImportExportSettings = () => {
         };
         reader.readAsText(file);
     };
+
     return (
         <Collapsible title="Импорт | Экспорт настроек" defaultOpen={false}>
             <div class="space-y-4">
@@ -62,15 +45,9 @@ export const ImportExportSettings = () => {
                         label="Сохранить настройки в JSON"
                         loadingLabel="Сохранение..."
                         onClick={async () => {
-                            const settings = {
-                                'export-type': exportType(),
-                                'sure-url': sureUrl(),
-                                'sure-token': sureToken(),
-                                'firefly-url': fireflyUrl(),
-                                'firefly-token': fireflyToken(),
-                                'general-max-transactions': max(),
-                                'user-name': userName()
-                            }
+                            const settings = Object.fromEntries(
+                                EXPORTABLE_KEYS.map((key) => [key, stores[key][0]()]),
+                            );
                             downloadFile(
                                 "settings.json",
                                 JSON.stringify(settings, null, 2)

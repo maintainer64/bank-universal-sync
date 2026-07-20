@@ -1,25 +1,24 @@
-import {createEffect, createSignal, For, onMount, Show} from "solid-js";
+import {Component, createEffect, createSignal, For, Show} from "solid-js";
 import {ActiveTab, useActiveTabUrl} from "@/shared/hooks/useActiveTabUrl";
 import {ServiceDetailsPage} from "@/pages/services/service-details-page";
-import {ProviderAny} from "@/shared/providers/base";
-import {sourceProviders as services} from "@/shared/providers/registry";
+import {ProviderAny, ProviderKind} from "@/shared/providers/base";
+import {providersByKind} from "@/shared/providers/registry";
 
+interface ServicesPageProps {
+    /** Категория из верхней навигации: банки / инвестиции / магазины. */
+    kind: ProviderKind;
+}
 
-export const ServicesPage = () => {
+export const ServicesPage: Component<ServicesPageProps> = (props) => {
     const activeTab: ActiveTab = useActiveTabUrl();
-    const [serviceFound, setServiceFound] = createSignal<
-        ProviderAny | undefined
-    >(undefined);
+    const [serviceFound, setServiceFound] = createSignal<ProviderAny | undefined>(undefined);
 
-    // Эффект для поиска сервиса
+    // Если открыта вкладка сервиса из ЭТОЙ категории — показываем его сразу.
     createEffect(() => {
         const currentUrl = activeTab.url() || "";
-        const found = services.find((service) => currentUrl.startsWith(service.getUrl()));
-        setServiceFound(found);
-    });
-
-    // Начальная проверка при монтировании компонента (на случай, если эффект не сработал сразу)
-    onMount(() => {
+        setServiceFound(
+            providersByKind(props.kind).find((service) => currentUrl.startsWith(service.getUrl())),
+        );
     });
 
     return (
@@ -27,9 +26,10 @@ export const ServicesPage = () => {
             <Show when={serviceFound()}>
                 <ServiceDetailsPage provider={serviceFound()!}/>
             </Show>
+
             <Show when={!serviceFound()}>
                 <div class="flex flex-col gap-2 p-4">
-                    <For each={services}>
+                    <For each={providersByKind(props.kind)}>
                         {(service) => (
                             <a
                                 href={service.getUrl()}
@@ -48,6 +48,11 @@ export const ServicesPage = () => {
                             </a>
                         )}
                     </For>
+                    <Show when={providersByKind(props.kind).length === 0}>
+                        <div class="text-sm text-gray-400 text-center py-4">
+                            В этой категории пока нет сервисов
+                        </div>
+                    </Show>
                 </div>
             </Show>
         </>

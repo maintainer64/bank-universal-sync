@@ -26,6 +26,12 @@ export async function swFetch(url: string, options?: RequestInit): Promise<Respo
         if (!port) connect();
         port!.postMessage({type: 'FETCH', id, url, options});
     });
-    if (!resp.ok) throw new Error(`SW fetch failed: ${resp.status} ${resp.body}`);
+    if (!resp.ok) {
+        // Сетевая ошибка приходит как {ok:false, error} (без status/body),
+        // HTTP-ошибка — как {ok:false, status, body}. Раньше печатались только
+        // status/body, поэтому сетевые падали с «undefined undefined».
+        const detail = resp.error ?? `HTTP ${resp.status}: ${String(resp.body).slice(0, 300)}`;
+        throw new Error(`Запрос не удался (${url}): ${detail}`);
+    }
     return new Response(resp.body, {status: resp.status, headers: resp.headers});
 }

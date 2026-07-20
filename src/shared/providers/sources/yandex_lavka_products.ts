@@ -1,6 +1,7 @@
 import {Product, ProviderAny, ProviderParams} from "../base";
 import {getMaxTransactions} from "@/shared/utils";
 import {swFetch} from "@/shared/sw-fetch";
+import {logItems} from "@/shared/providers/utils";
 
 
 const PREFIX = "lavka_yandex_";
@@ -53,17 +54,21 @@ export const yandexLavkaProducts: ProviderAny = {
     getName: () => {
         return "Яндекс Лавка"
     },
+    getKind: () => 'shop' as const,
+
     getIcon: () => {
         return "yandex_lavka.png"
     },
     getUrl: () => {
         return "https://lavka.yandex.ru/history"
     },
+    baseUrlLogo: () => {
+        return "lavka.yandex.ru"
+    },
     getProducts: async (params: ProviderParams): Promise<Product[]> => {
         const rows: Product[] = [];
         const maxLimit = getMaxTransactions(params.maxTransactions);
         const orders = await getOrdersByMaxLimit(maxLimit);
-        console.log(orders)
 
         for (const order of orders) {
             if (order?.deliveryInfo?.isCanceled === true || order?.deliveryInfo?.isFailed === true) {
@@ -93,6 +98,7 @@ export const yandexLavkaProducts: ProviderAny = {
                 });
             }
         }
+        logItems("Яндекс Лавка", "заказов разобрано", rows);
         return rows;
     },
 }

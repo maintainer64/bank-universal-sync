@@ -1,1 +1,1 @@
-export type TRoute = "services" | "settings" | "onboarding" | "sync";
+export type TRoute = "banks" | "investments" | "shops" | "settings" | "onboarding" | "sync";

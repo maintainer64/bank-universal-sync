@@ -1,13 +1,14 @@
 import {Account, ProviderAny, ProviderParams, Transaction} from "../base";
 import {swFetch} from "@/shared/sw-fetch";
 import {getMaxTransactions} from "@/shared/utils";
-import {getAccountName, getCurrencyCodeMap, getFullNotice, OpeningBalanceDateDefault} from "@/shared/providers/utils";
+import {getAccountName, getCurrencyCodeMap, getFullNotice, OpeningBalanceDateDefault, logItems} from "@/shared/providers/utils";
 
 const SETTINGS = {
     prefix: "sber_",
     name: "Сбер",
     icon: "sber.png",
     url: "https://online.sberbank.ru/app/main",
+    baseUrlLogo: "sberbank.ru",
     baseUrl: "https://web-node4.online.sberbank.ru",
 };
 
@@ -162,6 +163,9 @@ export const sberTransactions: ProviderAny = {
     getUrl: () => {
         return SETTINGS.url
     },
+    baseUrlLogo: () => {
+        return SETTINGS.baseUrlLogo
+    },
 
     getTransactions: async (params: ProviderParams): Promise<[Transaction[], any?]> => {
         const rows: Transaction[] = [];
@@ -219,6 +223,7 @@ export const sberTransactions: ProviderAny = {
                 })
             }
         }
+        logItems("Сбер", "операций разобрано", rows, operations);
         return [rows, operations];
     },
 
@@ -234,8 +239,8 @@ export const sberTransactions: ProviderAny = {
                 name: getAccountName(acct.name || 'Платёжный счёт', params.userName, sberTransactions.getName()),
                 currency: getCurrencyCodeMap(acct.balance?.currency?.code),
                 opening_balance_date: OpeningBalanceDateDefault.toISOString().split('T')[0],
-                institution_name: SETTINGS.name,
-                institution_domain: `${SETTINGS.prefix}ct-account:${acct.id}`,
+                institution_name: `${SETTINGS.prefix}ct-account:${acct.id}`,
+                institution_domain: SETTINGS.baseUrlLogo,
                 subtype: 'checking',
                 accountable_type: 'Depository',
                 notes: acct.number ? `Счёт: ${acct.number}` : undefined,
@@ -252,14 +257,15 @@ export const sberTransactions: ProviderAny = {
                 name: getAccountName(dep.name || 'Вклад', params.userName, sberTransactions.getName()),
                 currency: getCurrencyCodeMap(dep.balance?.currency?.code),
                 opening_balance_date: (dep.openDate ? dep.openDate.split('.').reverse().join('-') : OpeningBalanceDateDefault.toLocaleDateString('en-CA')),
-                institution_name: sberTransactions.getName(),
-                institution_domain: `${SETTINGS.prefix}account:${dep.id}`,
+                institution_name: `${SETTINGS.prefix}account:${dep.id}`,
+                institution_domain: SETTINGS.baseUrlLogo,
                 subtype: 'savings', // при наличии closeDate можно менять на 'cd'
                 accountable_type: 'Depository',
                 expiration_date: dep.closeDate || undefined,
                 notes: notesParts.join(';') || undefined,
             } as Account);
         }
+        logItems("Сбер", "счетов разобрано", rows, resp);
         return [rows, resp];
     },
 }
