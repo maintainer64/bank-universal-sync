@@ -1,3 +1,5 @@
+import type {SettingKey} from "@/shared/settings";
+
 export interface Transaction {
     external_account_id: string; // Account ID (required)
     date: string;  // Transaction date + time
@@ -41,8 +43,8 @@ export interface Account {
     name: string; // Название счёта
     currency: string; // Валюта
     opening_balance_date: string; // Дата открытия баланса
-    institution_name: string; // Название банка
-    institution_domain: string; // ID внешний для связки
+    institution_name: string; // ID внешний для связки
+    institution_domain: string; // Название банка
     subtype: AccountSubtype; // Подтип
     expiration_date?: string; // Дата окончания срока
     available_credit?: string;           // Для кредиток доступный кредитный лимит (число как строка)
@@ -71,18 +73,56 @@ export interface Product {
 }
 
 
+// Сделка по бумаге для инвестиционного счёта (модель Sure: trades -> holdings).
+// qty/price нужны для buy/sell, amount — для dividend/deposit/withdrawal/interest.
+export type TradeType = 'buy' | 'sell' | 'dividend' | 'deposit' | 'withdrawal' | 'interest';
+
+export interface Trade {
+    external_account_id: string; // institution_domain инвестиционного счёта
+    date: string;                // YYYY-MM-DD
+    type: TradeType;
+    ticker: string;              // тикер бумаги (для денежных операций может быть пустым)
+    name: string;                // название бумаги/операции
+    qty?: number;                // количество (buy/sell)
+    price?: number;              // цена за штуку (buy/sell)
+    amount?: number;             // сумма (dividend/deposit/withdrawal/interest)
+    currency: string;
+    external_id: string;         // id операции у брокера (для дедупа на клиенте)
+    source: string;
+    dataProviders: string[];
+}
+
 export interface ProviderParams {
     url: string
     maxTransactions: string
     userName?: string
+    /**
+     * Значения настроек, которые провайдер объявил в getConfigKeys()
+     * (ключи из схемы SETTINGS). Так общий тип не растёт под каждый источник:
+     * провайдеру, ходящему по токену, страница сама отдаст его токен.
+     */
+    config?: Record<string, string>
 }
+
+// Категория сервиса — по ней раскладываем провайдеров по вкладкам
+// и включаем разную логику (банки -> транзакции, инвестиции -> сделки, магазины -> заказы).
+export type ProviderKind = 'bank' | 'investment' | 'shop';
 
 export interface ProviderAny {
     getName(): string;
 
     getIcon(): string;
 
+    baseUrlLogo(): string;
+
     getUrl(): string;
+
+    // По умолчанию (если не задано) считаем провайдера банком.
+    getKind?(): ProviderKind;
+
+    // Ключи настроек (из схемы SETTINGS), нужные провайдеру: их значения
+    // придут в params.config. Провайдерам на куках это не нужно.
+    getConfigKeys?(): SettingKey[];
 
     prepare?(params: ProviderParams, onProgress?: OnProgress): Promise<void>;
 
@@ -91,6 +131,8 @@ export interface ProviderAny {
     getAccounts?(params: ProviderParams): Promise<[Account[], any?]>;
 
     getProducts?(params: ProviderParams): Promise<Product[]>;
+
+    getTrades?(params: ProviderParams): Promise<[Trade[], any?]>;
 }
 
 // Прогресс синхронизации: текущий этап + опциональный счётчик N из M.
@@ -108,6 +150,9 @@ export interface ProviderSync {
     createAccountsIfNotExists(accounts: Account[], onProgress?: OnProgress): Promise<void>;
 
     createTransactionsIfNotExists(transactions: Transaction[], onProgress?: OnProgress): Promise<void>;
+
+    // Сделки по инвестиционным счетам. Необязательный метод: поддерживают не все сервисы.
+    createTradesIfNotExists?(trades: Trade[], onProgress?: OnProgress): Promise<void>;
 }
 
 export interface ProviderFormatCSV {

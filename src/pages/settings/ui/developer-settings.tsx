@@ -1,10 +1,10 @@
 import {Collapsible} from "@/components/ui/collapsible";
 import {Label} from "@/components/ui/label";
-import {useUniversalStorage} from "@/shared/hooks/useUniversalStorage";
+import {useSetting} from "@/shared/settings";
 import {FaSolidBug} from "solid-icons/fa";
 
 export const DeveloperSettings = () => {
-    const [fetchJsonProviderData, setFetchJsonProviderData] = useUniversalStorage('fetch-json-provider-data', false);
+    const [fetchJsonProviderData, setFetchJsonProviderData] = useSetting('fetch-json-provider-data');
 
     return (
         <Collapsible title="Для разработчика">

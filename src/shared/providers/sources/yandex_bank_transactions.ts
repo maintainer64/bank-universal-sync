@@ -1,7 +1,8 @@
 import {Account, OnProgress, ProviderAny, ProviderParams, Transaction} from "../base";
 import {getCookieByName, getMaxTransactions} from "@/shared/utils";
 import {swFetch} from "@/shared/sw-fetch";
-import {getAccountName, getCurrencyCodeMap, getFullNotice, OpeningBalanceDateDefault} from "@/shared/providers/utils";
+import {logSync} from "@/shared/sync-log";
+import {getAccountName, getCurrencyCodeMap, getFullNotice, OpeningBalanceDateDefault, logItems} from "@/shared/providers/utils";
 
 
 const PREFIX_BANK = "yandex_";
@@ -112,6 +113,14 @@ async function ensurePrepared(): Promise<void> {
     if (prepared) return;
     operationHashes = await fetchOperationHashes();
     prepared = true;
+    const missing = OPERATION_NAMES.filter((name) => !operationHashes[name]);
+    if (missing.length > 0) {
+        logSync(
+            `Яндекс-Банк: не найдены операции в бандле: ${missing.join(", ")} — ` +
+            `выгрузка по ним не сработает (возможно, банк изменил сборку)`,
+            "warn",
+        );
+    }
 }
 
 function operationHash(name: OperationName): string {
@@ -202,6 +211,9 @@ export const yandexBankTransactions: ProviderAny = {
     getUrl: () => {
         return BASE_URL
     },
+    baseUrlLogo: () => {
+        return "pay.yandex.ru"
+    },
 
     // Ищет в webpack-бандле хэши всех нужных операций за один проход.
     prepare: async (_params: ProviderParams, onProgress?: OnProgress): Promise<void> => {
@@ -254,6 +266,7 @@ export const yandexBankTransactions: ProviderAny = {
                 source: PREFIX_BANK,
             })
         }
+        logItems("Яндекс-Банк", "операций разобрано", rows);
         return [rows, operations];
     },
 
@@ -272,7 +285,7 @@ export const yandexBankTransactions: ProviderAny = {
                     name: getAccountName(`Карта ${yandexLogin}`, params.userName, yandexBankTransactions.getName()),
                     currency: getCurrencyCodeMap(product.value?.currency),
                     opening_balance_date: OpeningBalanceDateDefault.toISOString().split('T')[0],
-                    institution_name: yandexBankTransactions.getName(),
+                    institution_name: yandexBankTransactions.baseUrlLogo(),
                     institution_domain: `${PREFIX_BANK}${await generateHashAccount(yandexLogin, "CARD")}`,
                     subtype: "checking",
                     accountable_type: "Depository",
@@ -303,6 +316,7 @@ export const yandexBankTransactions: ProviderAny = {
                 notes,
             } as Account);
         }
+        logItems("Яндекс-Банк", "счетов разобрано", rows, {homeData, savingAccounts});
         return [rows, {homeData, savingAccounts}];
     }
 }

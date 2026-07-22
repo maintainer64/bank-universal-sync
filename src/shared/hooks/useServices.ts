@@ -1,4 +1,4 @@
-import {useUniversalStorage} from "@/shared/hooks/useUniversalStorage";
+import {useSetting} from "@/shared/settings";
 import {createMemo} from "solid-js";
 import {SureService} from "@/shared/providers/services/sure/intex";
 import {ProviderFormatCSV, ProviderSync} from "@/shared/providers/base";
@@ -6,11 +6,11 @@ import {FireflyService} from "@/shared/providers/services/firefly-service";
 import {DefaultCsvService} from "@/shared/providers/services/default-csv";
 
 export function useServices() {
-    const [exportType] = useUniversalStorage('export-type', 'csv');
-    const [sureUrl] = useUniversalStorage('sure-url', '');
-    const [sureToken] = useUniversalStorage('sure-token', '');
-    const [fireFlyUrl] = useUniversalStorage('firefly-url', '');
-    const [fireFlyToken] = useUniversalStorage('firefly-token', '');
+    const [exportType] = useSetting('export-type');
+    const [sureUrl] = useSetting('sure-url');
+    const [sureToken] = useSetting('sure-token');
+    const [fireFlyUrl] = useSetting('firefly-url');
+    const [fireFlyToken] = useSetting('firefly-token');
 
     return createMemo(() => {
         const defaultService = new DefaultCsvService();

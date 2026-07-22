@@ -1,10 +1,12 @@
-import {Component, createEffect, createSignal, Match, onMount, Switch} from "solid-js";
+import {Component, createEffect, createSignal, For, Match, onMount, Show, Switch} from "solid-js";
 import {FaSolidCircleCheck, FaSolidCircleXmark, FaSolidSpinner} from "solid-icons/fa";
 import {ProviderParams, SyncProgress} from "@/shared/providers/base";
 import {findProviderByName} from "@/shared/providers/registry";
 import {useServices} from "@/shared/hooks/useServices";
 import {takeSyncRequest, SyncRequest} from "@/shared/sync-launch";
 import {ProgressBar} from "@/components/ui/progress";
+import {Collapsible} from "@/components/ui/collapsible";
+import {logs, logSync} from "@/shared/sync-log";
 
 type Status = "running" | "done" | "error";
 
@@ -15,6 +17,21 @@ export const SyncPage: Component = () => {
     const [status, setStatus] = createSignal<Status>("running");
     const [errorMsg, setErrorMsg] = createSignal("");
     const [started, setStarted] = createSignal(false);
+
+    /**
+     * Повторный запуск без закрытия окна: запрос остаётся в памяти (в localStorage
+     * он одноразовый). Удобно для отладки — открыть Network в DevTools service
+     * worker'а и нажать «Повторить», не проходя весь путь из popup заново.
+     */
+    const retry = () => {
+        const req = request();
+        if (!req) return;
+        logSync("— Повторный запуск —");
+        setErrorMsg("");
+        setProgress({stage: "Подготовка…"});
+        setStatus("running");
+        void runSync(req);
+    };
 
     const runSync = async (req: SyncRequest) => {
         const provider = findProviderByName(req.providerName);
@@ -35,6 +52,7 @@ export const SyncPage: Component = () => {
             url: req.url,
             maxTransactions: req.maxTransactions,
             userName: req.userName,
+            config: req.config,
         };
 
         try {
@@ -44,18 +62,35 @@ export const SyncPage: Component = () => {
                 await provider.prepare(params, setProgress);
             }
 
-            setProgress({stage: "Загрузка счетов из банка…"});
-            const [accounts] = await provider.getAccounts?.(params) || [[], undefined];
-            await service.createAccountsIfNotExists(accounts, setProgress);
+            logSync(`Старт: ${req.providerName} → ${req.serviceName}`);
+            if (provider.getAccounts && service.createAccountsIfNotExists) {
+                setProgress({stage: "Загрузка счетов из банка…"});
+                const [accounts] = await provider.getAccounts?.(params) || [[], undefined];
+                logSync(`Счетов получено: ${accounts.length}`);
+                await service.createAccountsIfNotExists(accounts, setProgress);
+            }
 
-            setProgress({stage: "Загрузка операций из банка…"});
-            const [transactions] = await provider.getTransactions?.(params) || [[], undefined];
-            await service.createTransactionsIfNotExists(transactions, setProgress);
+            if (provider.getTransactions && service.createTransactionsIfNotExists) {
+                setProgress({stage: "Загрузка операций из банка…"});
+                const [transactions] = await provider.getTransactions(params) || [[], undefined];
+                logSync(`Операций получено: ${transactions.length}`);
+                await service.createTransactionsIfNotExists(transactions, setProgress);
+            }
 
+            if (provider.getTrades && service.createTradesIfNotExists) {
+                setProgress({stage: "Загрузка сделок…"});
+                const [trades] = await provider.getTrades(params) || [[], undefined];
+                logSync(`Сделок получено: ${trades.length}`);
+                await service.createTradesIfNotExists(trades, setProgress);
+            }
+
+            logSync("Синхронизация завершена");
             setProgress({stage: "Готово"});
             setStatus("done");
         } catch (e) {
-            setErrorMsg(e instanceof Error ? e.message : String(e));
+            const message = e instanceof Error ? e.message : String(e);
+            logSync(message, "error");
+            setErrorMsg(message);
             setStatus("error");
         }
     };
@@ -107,12 +142,20 @@ export const SyncPage: Component = () => {
                         <div class="flex flex-col items-center gap-3">
                             <FaSolidCircleCheck class="text-green-500 text-4xl"/>
                             <p class="text-center">Синхронизация завершена</p>
-                            <button
-                                class="mt-2 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-                                onClick={() => window.close()}
-                            >
-                                Закрыть
-                            </button>
+                            <div class="mt-2 flex gap-2">
+                                <button
+                                    class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
+                                    onClick={retry}
+                                >
+                                    Повторить
+                                </button>
+                                <button
+                                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                                    onClick={() => window.close()}
+                                >
+                                    Закрыть
+                                </button>
+                            </div>
                         </div>
                     </Match>
 
@@ -120,15 +163,44 @@ export const SyncPage: Component = () => {
                         <div class="flex flex-col items-center gap-3">
                             <FaSolidCircleXmark class="text-red-500 text-4xl"/>
                             <p class="text-center text-sm text-gray-600 break-words">{errorMsg()}</p>
-                            <button
-                                class="mt-2 px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
-                                onClick={() => window.close()}
-                            >
-                                Закрыть
-                            </button>
+                            <div class="mt-2 flex gap-2">
+                                <button
+                                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                                    onClick={retry}
+                                >
+                                    Повторить
+                                </button>
+                                <button
+                                    class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
+                                    onClick={() => window.close()}
+                                >
+                                    Закрыть
+                                </button>
+                            </div>
                         </div>
                     </Match>
                 </Switch>
+
+                {/* Свёрнутый лог синхронизации: что именно происходило и что пропущено */}
+                <Show when={logs().length > 0}>
+                    <Collapsible title={`Лог (${logs().length})`} defaultOpen={false}>
+                        <div class="max-h-48 overflow-y-auto flex flex-col gap-1 font-mono text-xs">
+                            <For each={logs()}>
+                                {(entry) => (
+                                    <div
+                                        class={
+                                            entry.level === "error" ? "text-red-600"
+                                                : entry.level === "warn" ? "text-amber-600"
+                                                    : "text-gray-600"
+                                        }
+                                    >
+                                        <span class="text-gray-400">{entry.time}</span> {entry.message}
+                                    </div>
+                                )}
+                            </For>
+                        </div>
+                    </Collapsible>
+                </Show>
             </div>
         </div>
     );

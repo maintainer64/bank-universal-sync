@@ -85,7 +85,6 @@ function downloadBlob(blob: Blob, filename: string) {
     if (!link) return
     link.href = url;
     link.download = filename;
-    console.log("link", link);
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 100);
 }

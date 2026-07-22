@@ -10,7 +10,7 @@ jobs:
   sure-integration:
     runs-on: ubuntu-latest
     env:
-      SURE_BASE_URL: http://localhost:3000
+      SURE_BASE_URL: http://localhost
       SURE_API_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       SURE_ACCOUNT_DOMAIN: test-bank
     steps:
@@ -35,7 +35,7 @@ jobs:
       - name: Wait for Sure to be ready
         run: |
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000/up > /dev/null; then
+            if curl -sf http://localhost/up > /dev/null; then
               echo "Sure is up"; exit 0
             fi
             sleep 5
@@ -50,6 +50,12 @@ jobs:
             -e SEED_API_KEY="$SURE_API_KEY" \
             -e SEED_ACCOUNT_DOMAIN="$SURE_ACCOUNT_DOMAIN" \
             web bin/rails runner - < test/sure-seed.rb
+
+      - name: Seed Sure (инвестиционный счёт)
+        run: |
+          docker compose -f test/compose.sure.yml exec -T \
+            -e SEED_INVEST_DOMAIN=tinvest-test \
+            web bin/rails runner - < test/sure-seed-investment.rb
 
       - name: Run integration tests
         run: pnpm test:integration

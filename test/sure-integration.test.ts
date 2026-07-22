@@ -7,7 +7,7 @@ import {SureService} from "@/shared/providers/services/sure/intex";
 import {Api} from "@/shared/providers/services/sure/sureClient/Api";
 import type {Transaction} from "@/shared/providers/base";
 
-const BASE_URL = process.env.SURE_BASE_URL ?? "http://localhost:3000";
+const BASE_URL = process.env.SURE_BASE_URL ?? "http://localhost";
 const API_KEY = process.env.SURE_API_KEY ?? "";
 const DOMAIN = process.env.SURE_ACCOUNT_DOMAIN ?? "test-bank";
 
@@ -44,7 +44,7 @@ describe("Sure integration (живой инстанс)", () => {
         const res = await api.v1AccountsList({per_page: 100});
         const json = await res.json();
         const found = json.accounts.find(
-            (a: {institution_domain?: string}) => a.institution_domain === DOMAIN,
+            (a: {institution_name?: string}) => a.institution_name === DOMAIN,
         );
         expect(found, `счёт с institution_domain=${DOMAIN} не найден`).toBeTruthy();
     });
